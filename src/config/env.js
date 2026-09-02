@@ -57,6 +57,16 @@ const envSchema = z.object({
 
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   SWAGGER_ENABLED: tribool(),
+
+  // Deliberately provider-neutral names. The model vendor is an implementation
+  // detail of ai.service.js, and swapping it should not mean renaming config
+  // across every environment file and deploy script.
+  AI_API_KEY: z.string().optional(),
+  AI_BASE_URL: z.string().url().default('https://api.deepseek.com'),
+  AI_MODEL: z.string().default('deepseek-chat'),
+  AI_TIMEOUT_MS: num(30000, 1000),
+  AI_MAX_OUTPUT_TOKENS: num(800, 64),
+  AI_RATE_LIMIT_MAX: num(30, 1),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -104,6 +114,19 @@ const config = Object.freeze({
     windowMs: raw.RATE_LIMIT_WINDOW_MS,
     max: raw.RATE_LIMIT_MAX,
     authMax: raw.AUTH_RATE_LIMIT_MAX,
+    aiMax: raw.AI_RATE_LIMIT_MAX,
+  }),
+
+  // The assistant is optional infrastructure: without a key the endpoints
+  // answer 503 rather than the process refusing to boot. A missing AI key
+  // should never take down expense tracking.
+  ai: Object.freeze({
+    enabled: Boolean(raw.AI_API_KEY),
+    apiKey: raw.AI_API_KEY,
+    baseUrl: raw.AI_BASE_URL.replace(/\/+$/, ''),
+    model: raw.AI_MODEL,
+    timeoutMs: raw.AI_TIMEOUT_MS,
+    maxOutputTokens: raw.AI_MAX_OUTPUT_TOKENS,
   }),
 
   logLevel: isTest ? 'error' : raw.LOG_LEVEL,

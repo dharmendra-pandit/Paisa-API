@@ -79,4 +79,11 @@ const smsLimiter = rateLimit({ ...base, windowMs: 60 * 1000, max: 60 });
  */
 const splitLimiter = rateLimit({ ...base, windowMs: 60 * 1000, max: 90 });
 
-module.exports = { apiLimiter, authLimiter, smsLimiter, splitLimiter, normalizeIp };
+/**
+ * Every assistant call costs real money upstream and takes seconds to answer,
+ * so it gets its own small budget. Keyed per user by the shared keyGenerator,
+ * which matters here: this is a spend limit per account, not per network.
+ */
+const aiLimiter = rateLimit({ ...base, windowMs: config.rateLimit.windowMs, max: config.rateLimit.aiMax });
+
+module.exports = { apiLimiter, authLimiter, smsLimiter, splitLimiter, aiLimiter, normalizeIp };

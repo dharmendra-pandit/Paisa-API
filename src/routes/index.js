@@ -14,6 +14,7 @@ const insightRoutes = require('./insight.routes');
 const smsRoutes = require('./sms.routes');
 const subscriptionRoutes = require('./subscription.routes');
 const groupRoutes = require('./group.routes');
+const aiRoutes = require('./ai.routes');
 
 const router = express.Router();
 
@@ -76,5 +77,6 @@ router.use('/insights', authenticate, insightRoutes);
 router.use('/sms', authenticate, smsRoutes);
 router.use('/subscriptions', authenticate, subscriptionRoutes);
 router.use('/groups', authenticate, groupRoutes);
+router.use('/ai', authenticate, aiRoutes);
 
 module.exports = router;
