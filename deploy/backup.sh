@@ -7,7 +7,7 @@
 #
 # Install as a cron job (as the deploy user, from the backend directory):
 #     crontab -e
-#     15 3 * * * cd /home/paisa/paisa/backend && bash deploy/backup.sh >> /var/log/paisa-backup.log 2>&1
+#     15 3 * * * cd /home/paisa/paisa && bash deploy/backup.sh >> "$HOME/paisa-backup.log" 2>&1
 #
 # Self-hosting the database means backups are your responsibility, and an
 # untested backup is not a backup. The verification step below reads the archive
@@ -54,7 +54,7 @@ if [[ "${1:-}" == "--restore" ]]; then
     --username "$MONGO_ROOT_USER" --password "$MONGO_ROOT_PASSWORD" \
     --authenticationDatabase admin \
     --nsInclude "${DB_NAME}.*" \
-    --drop --gzip --archive="/backups/$(basename "$SOURCE")"
+    --drop --gzip --archive <"$BACKUP_DIR/$(basename "$SOURCE")"
 
   log "Restore complete — re-syncing indexes"
   $COMPOSE run --rm --no-deps api npm run indexes:sync
@@ -64,6 +64,8 @@ fi
 # ---------------------------------------------------------------------------
 # Backup
 # ---------------------------------------------------------------------------
+LOCAL_PATH="${BACKUP_DIR}/${ARCHIVE}"
+
 log "Dumping database '$DB_NAME'"
 
 # --archive writes a single stream, which compresses far better than a directory
@@ -72,10 +74,9 @@ $COMPOSE exec -T mongo mongodump \
   --username "$MONGO_ROOT_USER" --password "$MONGO_ROOT_PASSWORD" \
   --authenticationDatabase admin \
   --db "$DB_NAME" \
-  --gzip --archive="/backups/${ARCHIVE}" \
-  --quiet
+  --gzip --archive \
+  --quiet >"$LOCAL_PATH"
 
-LOCAL_PATH="${BACKUP_DIR}/${ARCHIVE}"
 [[ -f "$LOCAL_PATH" ]] || fail "Dump reported success but ${ARCHIVE} is missing"
 
 SIZE=$(stat -c '%s' "$LOCAL_PATH")

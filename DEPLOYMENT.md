@@ -67,7 +67,7 @@ SSH in as root and run the provisioning script:
 ```bash
 ssh root@<your VPS IP>
 git clone <your-repo-url> paisa
-cd paisa/backend
+cd paisa
 bash deploy/provision.sh
 ```
 
@@ -96,7 +96,7 @@ sudo systemctl restart ssh
 As the `paisa` user:
 
 ```bash
-cd ~/paisa/backend
+cd ~/paisa
 cp .env.production.example .env.production
 chmod 600 .env.production
 nano .env.production
@@ -160,7 +160,7 @@ crontab -e
 ```
 
 ```cron
-15 3 * * * cd /home/paisa/paisa/backend && bash deploy/backup.sh >> /var/log/paisa-backup.log 2>&1
+15 3 * * * cd /home/paisa/paisa && bash deploy/backup.sh >> /home/paisa/paisa-backup.log 2>&1
 ```
 
 The script dumps a compressed archive, **verifies it is readable** rather than
@@ -181,18 +181,25 @@ bash deploy/backup.sh --restore paisa-paisa-20260902-031500.archive.gz
 
 ---
 
+> **Every `docker compose` command below carries `--env-file .env.production`.**
+> Compose interpolates `${VAR}` from a file called `.env` in the project
+> directory — not from `.env.production`. `deploy.sh` gets away without the flag
+> because it exports the variables into the shell first; a command you type
+> yourself does not, and fails with *"required variable DOMAIN is missing a
+> value"* even though the value is plainly there in the file.
+
 ## Routine operations
 
 | Task | Command |
 |------|---------|
 | Deploy new code | `bash deploy/deploy.sh --pull` |
-| Restart the API | `docker compose -f docker-compose.prod.yml restart api` |
-| Follow logs | `docker compose -f docker-compose.prod.yml logs -f api` |
-| Container status | `docker compose -f docker-compose.prod.yml ps` |
-| Mongo shell | `docker compose -f docker-compose.prod.yml exec mongo mongosh -u "$MONGO_ROOT_USER" -p --authenticationDatabase admin` |
-| Rebuild indexes | `docker compose -f docker-compose.prod.yml run --rm api npm run indexes:sync` |
-| Seed demo data | `docker compose -f docker-compose.prod.yml run --rm api npm run seed` |
-| Stop everything | `docker compose -f docker-compose.prod.yml down` |
+| Restart the API | `docker compose --env-file .env.production -f docker-compose.prod.yml restart api` |
+| Follow logs | `docker compose --env-file .env.production -f docker-compose.prod.yml logs -f api` |
+| Container status | `docker compose --env-file .env.production -f docker-compose.prod.yml ps` |
+| Mongo shell | `docker compose --env-file .env.production -f docker-compose.prod.yml exec mongo mongosh -u "$MONGO_ROOT_USER" -p --authenticationDatabase admin` |
+| Rebuild indexes | `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api npm run indexes:sync` |
+| Seed demo data | `docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api npm run seed` |
+| Stop everything | `docker compose --env-file .env.production -f docker-compose.prod.yml down` |
 
 Deploys are safe to repeat. A failed build leaves the running site untouched,
 because the old container is only replaced once the new image builds cleanly.
@@ -245,7 +252,7 @@ needs to change.
 **Certificate will not issue**
 
 ```bash
-docker compose -f docker-compose.prod.yml logs caddy
+docker compose --env-file .env.production -f docker-compose.prod.yml logs caddy
 dig +short api.yourdomain.com     # must return your VPS IP
 sudo ufw status                    # 80 and 443 must be allowed
 ```
@@ -255,7 +262,7 @@ Almost always DNS has not propagated, or something else already holds port 80.
 **API container restarts in a loop**
 
 ```bash
-docker compose -f docker-compose.prod.yml logs api
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api
 ```
 
 `config/env.js` validates the environment at import and throws on anything
@@ -269,7 +276,7 @@ the first deploy, the container did not pick it up. Either update the password
 in the running database:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec mongo mongosh \
+docker compose --env-file .env.production -f docker-compose.prod.yml exec mongo mongosh \
   -u "$MONGO_ROOT_USER" -p --authenticationDatabase admin \
   --eval 'db.getSiblingDB("paisa").changeUserPassword("paisa_app", "<new password>")'
 ```
@@ -277,7 +284,7 @@ docker compose -f docker-compose.prod.yml exec mongo mongosh \
 or, if the database holds nothing you need, start clean:
 
 ```bash
-docker compose -f docker-compose.prod.yml down -v   # DESTROYS ALL DATA
+docker compose --env-file .env.production -f docker-compose.prod.yml down -v   # DESTROYS ALL DATA
 bash deploy/deploy.sh
 ```
 
