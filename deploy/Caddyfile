@@ -1,0 +1,76 @@
+# Caddy reverse proxy for the Paisa API.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically — there is
+# no certbot, no renewal cron, and no 90-day surprise. The only requirements are
+# that {$DOMAIN} resolves to this VPS and that ports 80 and 443 reach it.
+
+{
+	email {$ACME_EMAIL}
+	# Trim the server header; there is no reason to advertise the version.
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# ---- Security headers ----
+	# The API serves JSON to a mobile app, so the policy can be far stricter
+	# than a browser app would tolerate.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Resource-Policy "same-site"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+		-Server
+		-X-Powered-By
+	}
+
+	# ---- Health probe ----
+	# Kept unlogged so uptime checks do not drown the access log.
+	@health path /api/v1/health
+	handle @health {
+		reverse_proxy api:5000
+	}
+
+	# ---- API ----
+	handle {
+		reverse_proxy api:5000 {
+			# The API trusts X-Forwarded-For for rate-limit keying, so these
+			# must be set here and Caddy must be the only thing that can set
+			# them — which it is, since nothing else is publicly reachable.
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+
+			# Fail fast rather than piling up connections against a wedged app.
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+			}
+
+			health_uri /api/v1/health
+			health_interval 30s
+			health_timeout 5s
+		}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format json
+		# Do not write health checks or auth bodies to disk.
+		level INFO
+	}
+}
+
+# Bare IP or any other hostname gets nothing. Without this, Caddy would answer
+# on the default site and leak that something is running here.
+:80 {
+	respond "Not found" 404
+}

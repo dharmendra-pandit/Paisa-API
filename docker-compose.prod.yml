@@ -1,0 +1,122 @@
+# Production stack for a single VPS (Hostinger KVM2).
+#
+# Differences from docker-compose.yml, which is a development convenience:
+#
+#   1. MongoDB publishes NO port. In the dev file it binds 27017 on every
+#      interface with no credentials, which on a box with a public IP is found
+#      by automated scanners within hours and ransomed. Here it is reachable
+#      only over the internal Docker network, and it requires authentication.
+#   2. Caddy terminates TLS for the real domain and is the only thing exposed.
+#      The API listens on the internal network and is never addressable directly.
+#   3. Every service has resource limits and log rotation, because a VPS has no
+#      orchestrator to save it from one container eating the box.
+#
+# Deploy with:  docker compose -f docker-compose.prod.yml up -d --build
+# Secrets come from .env.production next to this file — never from this file.
+
+name: paisa
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: paisa-mongo
+    restart: unless-stopped
+    command: ['--auth', '--bind_ip_all', '--wiredTigerCacheSizeGB', '1']
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env.production}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env.production}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-paisa}
+      # Consumed by the init script to create the least-privilege app user.
+      PAISA_DB_NAME: ${MONGO_DB_NAME:-paisa}
+      PAISA_DB_USER: ${MONGO_APP_USER:?set MONGO_APP_USER in .env.production}
+      PAISA_DB_PASSWORD: ${MONGO_APP_PASSWORD:?set MONGO_APP_PASSWORD in .env.production}
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+      # Runs once, only when the data directory is empty.
+      - ./deploy/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./backups:/backups
+    networks:
+      - paisa-internal
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+    deploy:
+      resources:
+        limits: { memory: 2G }
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: paisa-api:latest
+    container_name: paisa-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      # Authenticated connection over the internal network only. authSource is
+      # the database the user was created in, which is the app database here —
+      # not `admin`, because the app user is deliberately not an admin.
+      MONGODB_URI: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@mongo:27017/${MONGO_DB_NAME:-paisa}?authSource=${MONGO_DB_NAME:-paisa}
+    networks:
+      - paisa-internal
+      - paisa-edge
+    # No `ports:` on purpose. Caddy reaches it over paisa-edge; the host and the
+    # public internet cannot.
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '5' }
+    deploy:
+      resources:
+        limits: { memory: 1G }
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: paisa-caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.production}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates must outlive the container or every restart re-requests
+      # them and hits Let's Encrypt rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - paisa-edge
+    logging:
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+
+volumes:
+  mongo-data:
+  mongo-config:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # Database traffic. Not reachable from the edge network, so a compromised
+  # Caddy cannot talk to MongoDB directly.
+  paisa-internal:
+    driver: bridge
+  paisa-edge:
+    driver: bridge

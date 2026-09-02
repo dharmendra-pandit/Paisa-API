@@ -1,0 +1,32 @@
+# Build context hygiene. Anything listed here never reaches the Docker daemon,
+# so it cannot end up in a layer that `docker history` would expose.
+
+node_modules
+npm-debug.log*
+
+# Secrets. The API reads .env.production at runtime via `env_file`, from the
+# host — it must never be baked into the image.
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Database dumps: large, and full of user data.
+backups/
+
+coverage/
+tests/
+*.test.js
+
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# Deployment assets are mounted from the host by compose, not copied in.
+deploy/
+docker-compose*.yml
+Dockerfile
+*.md
+postman/

@@ -1,0 +1,45 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: paisa-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # The API must not start against a database that is not accepting writes yet.
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api:
+    build: .
+    container_name: paisa-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - '5000:5000'
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      API_PREFIX: /api/v1
+      # `mongo` is the compose service name, resolved on the default network.
+      MONGODB_URI: mongodb://mongo:27017/paisa
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # Supply real secrets via a .env file next to this compose file.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Kolkata}
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-INR}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+
+volumes:
+  mongo-data:

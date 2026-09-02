@@ -1,0 +1,2332 @@
+{
+  "info": {
+    "_postman_id": "8f3c1d92-4a7e-4b61-9c05-1e2d3f4a5b60",
+    "name": "Paisa API",
+    "description": "Personal Finance + Expense AI backend.\n\n## Getting started\n\n1. Select the **Paisa - Local** environment (or set `baseUrl` yourself).\n2. Run **Auth > Signup** (or **Auth > Login** with the seeded demo account).\n   The response test script stores `accessToken` and `refreshToken` automatically,\n   so every other request is authenticated with no manual copying.\n3. Seeded demo credentials (after `npm run seed`): `demo@paisa.app` / `Paisa@2026`.\n\nCollection-level auth is Bearer `{{accessToken}}`; the public auth endpoints override it with no auth.\n\n## Suggested run order\n\nAuth -> Expenses -> Budgets -> SMS -> Subscriptions > Detect -> Analytics -> Insights.\nThe insight and analytics endpoints need a few weeks of data to say anything interesting,\nso run the seeder first for the full experience.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Provide a current month (YYYY-MM) and today's date to any request that wants them.",
+          "const now = new Date();",
+          "const pad = (n) => String(n).padStart(2, '0');",
+          "pm.collectionVariables.set('currentMonth', `${now.getFullYear()}-${pad(now.getMonth() + 1)}`);",
+          "pm.collectionVariables.set('today', `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Contract checks that should hold for every endpoint in the collection.",
+          "pm.test('responds with JSON', () => pm.response.to.be.json);",
+          "pm.test('uses the standard envelope', () => {",
+          "    const body = pm.response.json();",
+          "    pm.expect(body).to.have.property('success');",
+          "    pm.expect(body).to.have.property('message');",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "expenseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "budgetId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "subscriptionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "currentMonth",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "today",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "groupId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "myMemberId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "memberId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "memberId3",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "splitExpenseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "settlementId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "settleFrom",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "settleTo",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "settleAmount",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Liveness plus database readiness. Returns 503 when Mongo is unreachable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('service is healthy', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().data.database).to.eql('connected');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reference data (categories, payment methods)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/meta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "meta"
+              ]
+            },
+            "description": "Enumerations a client needs to render expense and budget forms."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Aarav Sharma\",\n  \"email\": \"aarav@example.com\",\n  \"password\": \"Paisa@2026\",\n  \"currency\": \"INR\",\n  \"timezone\": \"Asia/Kolkata\",\n  \"monthlyIncome\": 85000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/signup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signup"
+              ]
+            },
+            "description": "Creates an account and returns an access/refresh token pair. The test script stores both."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const { accessToken, refreshToken } = pm.response.json().data;",
+                  "    pm.collectionVariables.set('accessToken', accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', refreshToken);",
+                  "    pm.test('tokens stored', () => pm.expect(accessToken).to.be.a('string'));",
+                  "} else if (pm.response.code === 409) {",
+                  "    console.log('Account already exists - use Login instead.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (seeded demo user)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"demo@paisa.app\",\n  \"password\": \"Paisa@2026\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Credentials created by `npm run seed`. Stores the returned tokens."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login succeeded', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "    const { accessToken, refreshToken } = pm.response.json().data;",
+                  "    pm.collectionVariables.set('accessToken', accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - wrong password (401)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"demo@paisa.app\",\n  \"password\": \"WrongPassword1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "An unknown email returns this exact same message, so the endpoint cannot be used to enumerate accounts."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get my profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update profile & preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthlyIncome\": 92000,\n  \"preferences\": {\n    \"budgetAlertThreshold\": 0.75,\n    \"autoCategorize\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "`budgetAlertThreshold` is the default warning point for budgets created afterwards."
+          }
+        },
+        {
+          "name": "Refresh token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Rotates the pair: the new refresh token replaces the old one on the client."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const { accessToken, refreshToken } = pm.response.json().data;",
+                  "    pm.collectionVariables.set('accessToken', accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Paisa@2026\",\n  \"newPassword\": \"NewPaisa@2027\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "Revokes every other live session and returns a fresh token pair for this one."
+          }
+        },
+        {
+          "name": "Logout (all devices)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Advances the session generation, so every issued refresh token stops working."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Expenses",
+      "item": [
+        {
+          "name": "Add expense (auto-categorised)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 480,\n  \"merchant\": \"Swiggy\",\n  \"note\": \"Dinner order\",\n  \"paymentMethod\": \"upi\",\n  \"tags\": [\"weekend\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ]
+            },
+            "description": "No `category` supplied, so the rule engine picks one. The response reports the method, the confidence and the token it matched on, plus any budget threshold this expense crossed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const { expense } = pm.response.json().data;",
+                  "    pm.collectionVariables.set('expenseId', expense.id);",
+                  "    pm.test('auto-categorised as FOOD', () => pm.expect(expense.category).to.eql('FOOD'));",
+                  "    pm.test('reports its confidence', () => pm.expect(expense.categorization.confidence).to.be.above(0.5));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add expense (explicit category)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 18000,\n  \"category\": \"RENT\",\n  \"merchant\": \"Landlord\",\n  \"note\": \"Monthly house rent\",\n  \"paymentMethod\": \"net_banking\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ]
+            },
+            "description": "An explicit category marks the row user-confirmed, which teaches the categoriser what this merchant means for this account."
+          }
+        },
+        {
+          "name": "Preview categorisation (nothing saved)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchant\": \"Netflix\",\n  \"note\": \"Monthly plan\",\n  \"amount\": 649\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses/categorize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "categorize"
+              ]
+            },
+            "description": "Dry run of the rule engine — useful for showing a suggested category while the user is still typing."
+          }
+        },
+        {
+          "name": "Bulk add expenses",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expenses\": [\n    { \"amount\": 240, \"merchant\": \"Uber\", \"note\": \"Cab to office\" },\n    { \"amount\": 1850, \"merchant\": \"BigBasket\", \"note\": \"Weekly groceries\" },\n    { \"amount\": 499, \"merchant\": \"Netflix\", \"note\": \"Subscription renewal\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses/bulk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "bulk"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List expenses (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses?page=1&limit=20&sortBy=date&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "date"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc"
+                }
+              ]
+            },
+            "description": "`data.summary` totals the whole filtered set, not just the returned page."
+          }
+        },
+        {
+          "name": "Filter by month and category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses?month={{currentMonth}}&category=FOOD,GROCERIES",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{currentMonth}}"
+                },
+                {
+                  "key": "category",
+                  "value": "FOOD,GROCERIES"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter by date range and amount",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses?startDate={{currentMonth}}-01&endDate={{today}}&minAmount=500&maxAmount=5000&type=debit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "{{currentMonth}}-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "{{today}}",
+                  "description": "Inclusive"
+                },
+                {
+                  "key": "minAmount",
+                  "value": "500"
+                },
+                {
+                  "key": "maxAmount",
+                  "value": "5000"
+                },
+                {
+                  "key": "type",
+                  "value": "debit"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search notes and merchants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses?search=swiggy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "swiggy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Categories used by this account",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "categories"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get one expense",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "{{expenseId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update expense",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 620,\n  \"category\": \"ENTERTAINMENT\",\n  \"note\": \"Dinner and a movie\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "{{expenseId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete expense (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "{{expenseId}}"
+              ]
+            },
+            "description": "Soft delete keeps the row out of listings while leaving historical trends honest. Add `?hard=true` to remove it permanently."
+          }
+        },
+        {
+          "name": "Restore deleted expense",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/expenses/{{expenseId}}/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses",
+                "{{expenseId}}",
+                "restore"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Budgets",
+      "item": [
+        {
+          "name": "Set overall monthly budget",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 45000,\n  \"month\": \"{{currentMonth}}\",\n  \"alertThreshold\": 0.8,\n  \"note\": \"Overall cap for the month\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/budgets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets"
+              ]
+            },
+            "description": "Upsert. `alertThreshold: 0.8` warns at 80%. Transfers, investments and income are excluded from the overall cap."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    pm.collectionVariables.set('budgetId', pm.response.json().data.budget.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set category budget (Food)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 8000,\n  \"category\": \"FOOD\",\n  \"month\": \"{{currentMonth}}\",\n  \"alertThreshold\": 0.8\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/budgets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List budgets with usage",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets?month={{currentMonth}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{currentMonth}}"
+                }
+              ]
+            },
+            "description": "Each entry carries spent, remaining, percentageUsed, status and a `pace` block with burn rate, projected month-end spend and the safe daily amount for the rest of the month."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reports usage percentage', () => {",
+                  "    const { overall } = pm.response.json().data;",
+                  "    if (overall) pm.expect(overall).to.have.property('percentageUsed');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trigger the 80% warning",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 6500,\n  \"merchant\": \"Barbeque Nation\",\n  \"note\": \"Large dinner - should push the Food budget past 80%\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "expenses"
+              ]
+            },
+            "description": "Budget warnings ride along on the write that causes them, in `data.budgetAlerts`, so the client can show the warning immediately. Alerts are edge-triggered: you are told once when you cross 80%, not on every later purchase."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const alerts = pm.response.json().data.budgetAlerts || [];",
+                  "console.log('budget alerts raised:', JSON.stringify(alerts.map(a => `${a.category} ${a.level} ${a.percentage}%`)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get one budget",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets/{{budgetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets",
+                "{{budgetId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Budgetable categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets",
+                "categories"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Roll budgets into next month",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/budgets/rollover",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets",
+                "rollover"
+              ]
+            },
+            "description": "Copies every auto-renewing budget forward, skipping months that already have one."
+          }
+        },
+        {
+          "name": "Delete budget",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/budgets/{{budgetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "budgets",
+                "{{budgetId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SMS",
+      "item": [
+        {
+          "name": "Parse debit SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Rs.499.00 debited from A/c XX4521 on 28-08-26 to NETFLIX via UPI. Ref 429183746512. Not you? Call 18002586161. -HDFC Bank\",\n  \"sender\": \"VM-HDFCBK\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse"
+              ]
+            },
+            "description": "Extracts amount, direction, merchant, bank, masked account, reference and date, then categorises and saves. Returns 201 with `status: created`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const { parsed, status } = pm.response.json().data;",
+                  "pm.test('recognised as a transaction', () => pm.expect(['created', 'duplicate']).to.include(status));",
+                  "if (parsed) {",
+                  "    pm.test('extracted the amount', () => pm.expect(parsed.amount).to.eql(499));",
+                  "    pm.test('extracted the direction', () => pm.expect(parsed.type).to.eql('debit'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Parse credit SMS (salary)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"INR 85,000.00 credited to A/c XX4521 on 01-08-26 towards SALARY AUG 2026. Ref 8812340091. -HDFC Bank\",\n  \"sender\": \"VM-HDFCBK\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse"
+              ]
+            },
+            "description": "A credit becomes an INCOME transaction rather than spending."
+          }
+        },
+        {
+          "name": "Parse credit-card SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Rs 1,240.50 spent on ICICI Bank Credit Card XX8890 at SWIGGY on 24-08-26. Avl Lmt Rs 78,759.50.\",\n  \"sender\": \"AX-ICICIB\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Preview only (save=false)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Rs.2,350.00 has been debited from A/c XX7712 on 19-08-26 to BIGBASKET. Ref no 987654321012. -SBI\",\n  \"sender\": \"JD-SBIINB\",\n  \"save\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse"
+              ]
+            },
+            "description": "Returns the parse and the expense it *would* create, without writing anything."
+          }
+        },
+        {
+          "name": "Promotional SMS is ignored",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Flat 50% OFF on your next order! Use coupon SAVE50 and get cashback up to Rs.150. Order now on Swiggy.\",\n  \"sender\": \"AD-SWIGGY\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse"
+              ]
+            },
+            "description": "Marketing messages mention money but are not transactions. Returns 200 with `status: ignored` — a success, not an error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('skipped, not recorded', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().data.status).to.eql('ignored');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OTP SMS is ignored",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"729103 is your OTP for a transaction of Rs.4,999 on HDFC Bank Card XX4521. Do not share this OTP with anyone.\",\n  \"sender\": \"VM-HDFCBK\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Bulk import",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    { \"message\": \"Rs.320 debited from A/c XX1188 on 21-08-26 trf to UBER INDIA Ref 774411220033. -Axis Bank\", \"sender\": \"VK-AXISBK\" },\n    { \"message\": \"Rs.1,150.00 debited from A/c XX4521 on 22-08-26 to BLINKIT via UPI. Ref 883322119900.\", \"sender\": \"VM-HDFCBK\" },\n    { \"message\": \"Your credit card bill of Rs.14,320 is due on 05-09-26. Pay now to avoid late fees.\", \"sender\": \"AD-ICICIB\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sms/parse-batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sms",
+                "parse-batch"
+              ]
+            },
+            "description": "Per-message outcomes, so partial success is visible. The bill reminder is correctly skipped."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Subscriptions",
+      "item": [
+        {
+          "name": "Run detection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookbackDays\": 210,\n  \"persist\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/subscriptions/detect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "detect"
+              ]
+            },
+            "description": "Groups charges by normalised merchant and scores each group on cadence regularity, amount stability and merchant recognition. Needs at least three charges before it will commit."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const { detected, summary } = pm.response.json().data;",
+                  "console.log('detected:', detected.map(d => `${d.merchant} ${d.amount} ${d.cadence} (conf ${d.confidence})`));",
+                  "console.log('estimated monthly cost:', summary.estimatedMonthlyCost);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dry run (persist=false)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"persist\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/subscriptions/detect",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "detect"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/subscriptions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscriptions"
+              ]
+            },
+            "description": "Includes estimated monthly and yearly cost, normalised across weekly/monthly/quarterly/yearly cadences."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const { items } = pm.response.json().data;",
+                  "if (items && items.length) pm.collectionVariables.set('subscriptionId', items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upcoming charges (next 30 days)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/subscriptions/upcoming?days=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "upcoming"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirm a detection",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"verdict\": \"confirmed\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/subscriptions/{{subscriptionId}}/review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "{{subscriptionId}}",
+                "review"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dismiss a false positive",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"verdict\": \"dismissed\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/subscriptions/{{subscriptionId}}/review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscriptions",
+                "{{subscriptionId}}",
+                "review"
+              ]
+            },
+            "description": "A dismissed detection is never resurrected by a later detection run."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Groups (Split Expenses)",
+      "description": "Splitwise-style shared expenses. Run 'Create group' first — it stores the group id and the member ids that every other request in this folder depends on. Note that splits and settlements reference GROUP MEMBER ids, not user ids, which is what lets registered users and not-yet-signed-up placeholders be handled identically.",
+      "item": [
+        {
+          "name": "Reference data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/meta",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "meta"
+              ]
+            },
+            "description": "Icons, split types, settlement methods and categories for building the group forms."
+          }
+        },
+        {
+          "name": "Search users by email",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/search-users?query=diya@",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "search-users"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "diya@"
+                }
+              ]
+            },
+            "description": "Anchored prefix match, minimum three characters. Use the returned id as `userId` when adding a member."
+          }
+        },
+        {
+          "name": "Create group",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Weekend Trip\",\n  \"icon\": \"trip\",\n  \"members\": [\n    {\n      \"email\": \"diya@paisa.app\"\n    },\n    {\n      \"email\": \"rohan@example.com\",\n      \"name\": \"Rohan Iyer\"\n    },\n    {\n      \"email\": \"meera@example.com\",\n      \"name\": \"Meera Nair\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "create"
+              ]
+            },
+            "description": "Creates a group with you as admin. `diya@paisa.app` is a seeded account so it links to a real user; Rohan and Meera have no account and become claimable placeholders."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('group created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const group = pm.response.json().data.group;",
+                  "    pm.collectionVariables.set('groupId', group.id);",
+                  "    // Member ids — not user ids — are what splits and settlements reference.",
+                  "    pm.collectionVariables.set('myMemberId', group.members[0].id);",
+                  "    pm.collectionVariables.set('memberId2', group.members[1].id);",
+                  "    pm.collectionVariables.set('memberId3', group.members[2].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List my groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups?includeArchived=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups"
+              ],
+              "query": [
+                {
+                  "key": "includeArchived",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "Every group you belong to, each annotated with your net position, plus an aggregate of what you owe and are owed."
+          }
+        },
+        {
+          "name": "Group detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}"
+              ]
+            },
+            "description": "Members, full balances and the ten most recent expenses in a single round trip."
+          }
+        },
+        {
+          "name": "Add member",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"email\": \"arjun@example.com\",\n  \"name\": \"Arjun Rao\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/add-member",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "add-member"
+              ]
+            },
+            "description": "Admin only. Someone previously removed is re-activated rather than duplicated, so their history stays attached."
+          }
+        },
+        {
+          "name": "Add expense — equal split",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Dinner at the shack\",\n  \"amount\": 100,\n  \"category\": \"FOOD\",\n  \"addToPersonalExpenses\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses"
+              ]
+            },
+            "description": "Omitting `participants` splits equally across every active member. Shares are computed in integer paise and always sum to the bill exactly."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('expense added', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const expense = pm.response.json().data.expense;",
+                  "    pm.collectionVariables.set('splitExpenseId', expense.id);",
+                  "    const total = expense.splits.reduce((s, r) => s + r.amount, 0);",
+                  "    pm.test('shares sum to the bill exactly', () =>",
+                  "        pm.expect(Math.round(total * 100) / 100).to.eql(expense.amount));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add expense — exact amounts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Groceries\",\n  \"amount\": 2400,\n  \"category\": \"GROCERIES\",\n  \"splitType\": \"exact\",\n  \"participants\": [\n    {\n      \"member\": \"{{myMemberId}}\",\n      \"share\": 1000\n    },\n    {\n      \"member\": \"{{memberId2}}\",\n      \"share\": 900\n    },\n    {\n      \"member\": \"{{memberId3}}\",\n      \"share\": 500\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses"
+              ]
+            },
+            "description": "`exact` amounts must total the bill or the request is rejected with a 422 naming the shortfall."
+          }
+        },
+        {
+          "name": "Add expense — percentage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Villa booking\",\n  \"amount\": 18000,\n  \"category\": \"TRAVEL\",\n  \"splitType\": \"percentage\",\n  \"participants\": [\n    {\n      \"member\": \"{{myMemberId}}\",\n      \"share\": 40\n    },\n    {\n      \"member\": \"{{memberId2}}\",\n      \"share\": 35\n    },\n    {\n      \"member\": \"{{memberId3}}\",\n      \"share\": 25\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses"
+              ]
+            },
+            "description": "Percentages must total 100. The server re-derives rupee amounts, so client-side rounding cannot leak money."
+          }
+        },
+        {
+          "name": "Add expense — shares (weights)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Scooter rental\",\n  \"amount\": 3200,\n  \"category\": \"TRANSPORT\",\n  \"splitType\": \"shares\",\n  \"participants\": [\n    {\n      \"member\": \"{{myMemberId}}\",\n      \"share\": 2\n    },\n    {\n      \"member\": \"{{memberId2}}\",\n      \"share\": 1\n    },\n    {\n      \"member\": \"{{memberId3}}\",\n      \"share\": 0\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses"
+              ]
+            },
+            "description": "Relative weights — a member with 2 shares owes twice one with 1. A share of 0 excludes them from this bill."
+          }
+        },
+        {
+          "name": "Group ledger",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Newest first. Each row carries your own share and whether you lent or borrowed on it."
+          }
+        },
+        {
+          "name": "Edit expense",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 150\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses/{{splitExpenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses",
+                "{{splitExpenseId}}"
+              ]
+            },
+            "description": "Changing the amount, payer, split type or participants recomputes every share from scratch."
+          }
+        },
+        {
+          "name": "Balances — who owes whom",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/balances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "balances"
+              ]
+            },
+            "description": "Per-member net positions, the literal pairwise ledger, and the minimal set of transfers that clears the group."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('balances returned', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json().data;",
+                  "    const net = data.members.reduce((s, m) => s + m.net, 0);",
+                  "    // Every rupee paid is a rupee owed; the group must net to zero.",
+                  "    pm.test('net positions sum to zero', () =>",
+                  "        pm.expect(Math.round(net * 100) / 100).to.eql(0));",
+                  "    if (data.settleUp.length) {",
+                  "        pm.collectionVariables.set('settleFrom', data.settleUp[0].from.member);",
+                  "        pm.collectionVariables.set('settleTo', data.settleUp[0].to.member);",
+                  "        pm.collectionVariables.set('settleAmount', data.settleUp[0].amount);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Balances — unsimplified",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/balances?simplify=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "balances"
+              ],
+              "query": [
+                {
+                  "key": "simplify",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "The literal ledger instead of the simplified plan. This is the view that settles an argument about why you owe something."
+          }
+        },
+        {
+          "name": "Settle up (partial)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from\": \"{{settleFrom}}\",\n  \"to\": \"{{settleTo}}\",\n  \"amount\": \"{{settleAmount}}\",\n  \"method\": \"upi\",\n  \"note\": \"Settled over UPI\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/settle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "settle"
+              ]
+            },
+            "description": "Records a real payment between two members. Paying less than the full debt simply leaves the remainder outstanding — there is no partial-settlement flag because balances are derived, not stored."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('settlement recorded', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('settlementId', pm.response.json().data.settlement.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Settlement history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/settlements",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "settlements"
+              ]
+            },
+            "description": "Every payment recorded between members of this group."
+          }
+        },
+        {
+          "name": "Reverse a settlement",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/settlements/{{settlementId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "settlements",
+                "{{settlementId}}"
+              ]
+            },
+            "description": "Undoes a settlement recorded in error and returns refreshed balances."
+          }
+        },
+        {
+          "name": "Promote member to admin",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"admin\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/members/{{memberId2}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "members",
+                "{{memberId2}}"
+              ]
+            },
+            "description": "Only linked accounts can be admins; a placeholder must join first."
+          }
+        },
+        {
+          "name": "Remove member",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/members/{{memberId3}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "members",
+                "{{memberId3}}"
+              ]
+            },
+            "description": "Refused with a 400 while the member carries a non-zero balance — removing them would destroy money the group owes."
+          }
+        },
+        {
+          "name": "Delete expense",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}/expenses/{{splitExpenseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}",
+                "expenses",
+                "{{splitExpenseId}}"
+              ]
+            },
+            "description": "Soft delete. Balances recompute immediately."
+          }
+        },
+        {
+          "name": "Archive group",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isArchived\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}"
+              ]
+            },
+            "description": "A group with expenses cannot be deleted — the ledger is evidence — so archive it instead."
+          }
+        },
+        {
+          "name": "Delete group",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/groups/{{groupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "groups",
+                "{{groupId}}"
+              ]
+            },
+            "description": "Only succeeds for a group with no expenses."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Monthly summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/summary?month={{currentMonth}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{currentMonth}}"
+                }
+              ]
+            },
+            "description": "Total spend, income, savings rate, daily average, projected month-end spend and a month-over-month comparison."
+          }
+        },
+        {
+          "name": "Category breakdown",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/categories?month={{currentMonth}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "categories"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{currentMonth}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Daily trend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/trends?granularity=day&month={{currentMonth}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "trends"
+              ],
+              "query": [
+                {
+                  "key": "granularity",
+                  "value": "day"
+                },
+                {
+                  "key": "month",
+                  "value": "{{currentMonth}}"
+                }
+              ]
+            },
+            "description": "Days with no spending are returned as zeros, so a chart has no gaps."
+          }
+        },
+        {
+          "name": "Weekly trend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/trends?granularity=week",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "trends"
+              ],
+              "query": [
+                {
+                  "key": "granularity",
+                  "value": "week"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Weekend vs weekday",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/weekday",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "weekday"
+              ]
+            },
+            "description": "Per-day totals plus true per-calendar-day averages for weekends versus weekdays."
+          }
+        },
+        {
+          "name": "Top merchants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/merchants?limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "merchants"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dashboard (one call)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "dashboard"
+              ]
+            },
+            "description": "Summary, categories, daily trend, top merchants and recent transactions in a single round trip."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Insights",
+      "item": [
+        {
+          "name": "Generate insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/insights?limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "insights"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Ranked findings such as \"You spend more on food on weekends\" and \"Your spending increased by 20% this month\". Every insight carries the metrics it was derived from, so the claim can be checked rather than trusted."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const { insights } = pm.response.json().data;",
+                  "insights.forEach(i => console.log(`[${i.severity}] ${i.message}`));",
+                  "pm.test('each insight carries its evidence', () => {",
+                  "    insights.forEach(i => pm.expect(i).to.have.property('metrics'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Weekend spending pattern only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/insights?types=weekend_pattern",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "insights"
+              ],
+              "query": [
+                {
+                  "key": "types",
+                  "value": "weekend_pattern"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Spending trend & budget pace",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/insights?types=spending_trend,budget_pace,category_spike",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "insights"
+              ],
+              "query": [
+                {
+                  "key": "types",
+                  "value": "spending_trend,budget_pace,category_spike"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One-line digest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/insights/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "insights",
+                "summary"
+              ]
+            },
+            "description": "What a push notification or email subject line would say."
+          }
+        },
+        {
+          "name": "Available insight types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/insights/types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "insights",
+                "types"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
