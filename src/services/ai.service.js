@@ -140,6 +140,33 @@ async function callProvider(payload) {
   }
 }
 
+/**
+ * The request body for one turn.
+ *
+ * Two families of model sit behind the same OpenAI-shaped endpoint and accept
+ * different knobs. A classic chat model takes `max_tokens` and a low
+ * `temperature` for steady answers. A reasoning model rejects both outright —
+ * every question would fail — and spends part of its token budget thinking
+ * before it writes, so a budget sized for the answer alone can come back
+ * empty. For those, `AI_REASONING_EFFORT` (set in the server's environment)
+ * selects `max_completion_tokens`, a small thinking effort so replies stay
+ * quick, and low verbosity, which matches the assistant's short, plain voice.
+ */
+function requestBody(messages, ai = config.ai) {
+  const base = { model: ai.model, messages, stream: false };
+
+  if (ai.reasoningEffort) {
+    return {
+      ...base,
+      max_completion_tokens: ai.maxOutputTokens,
+      reasoning_effort: ai.reasoningEffort,
+      verbosity: 'low',
+    };
+  }
+
+  return { ...base, max_tokens: ai.maxOutputTokens, temperature: 0.3 };
+}
+
 function parseReply(body) {
   const reply = body?.choices?.[0]?.message?.content;
   if (typeof reply !== 'string' || !reply.trim()) {
@@ -173,13 +200,7 @@ async function chat(user, { messages, includeContext = true } = {}) {
     });
   }
 
-  const body = await callProvider({
-    model: config.ai.model,
-    messages: [...systemMessages, ...history],
-    max_tokens: config.ai.maxOutputTokens,
-    temperature: 0.3,
-    stream: false,
-  });
+  const body = await callProvider(requestBody([...systemMessages, ...history]));
 
   return {
     reply: parseReply(body),
@@ -192,4 +213,4 @@ function status() {
   return { available: config.ai.enabled };
 }
 
-module.exports = { chat, status, buildContext, SYSTEM_PROMPT };
+module.exports = { chat, status, buildContext, requestBody, SYSTEM_PROMPT };

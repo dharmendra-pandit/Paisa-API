@@ -67,6 +67,14 @@ const envSchema = z.object({
   AI_TIMEOUT_MS: num(30000, 1000),
   AI_MAX_OUTPUT_TOKENS: num(800, 64),
   AI_RATE_LIMIT_MAX: num(30, 1),
+  // Set only for a reasoning ("thinking") model. Its presence switches the
+  // request to the parameters such models accept; see requestBody().
+  // An empty `AI_REASONING_EFFORT=` line, as the example file ships, means
+  // unset rather than an invalid value that stops the server booting.
+  AI_REASONING_EFFORT: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.enum(['minimal', 'low', 'medium', 'high']).optional()
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -127,6 +135,7 @@ const config = Object.freeze({
     model: raw.AI_MODEL,
     timeoutMs: raw.AI_TIMEOUT_MS,
     maxOutputTokens: raw.AI_MAX_OUTPUT_TOKENS,
+    reasoningEffort: raw.AI_REASONING_EFFORT || null,
   }),
 
   logLevel: isTest ? 'error' : raw.LOG_LEVEL,

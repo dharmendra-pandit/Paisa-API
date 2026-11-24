@@ -20,13 +20,16 @@ MongoDB, the API and Caddy (which gets the HTTPS certificate). Every later
 run ships the current code and redeploys; it never replaces the passwords.
 It waits, without starting, until the domain points at the server.
 
-To turn on Paisa AI, add the key on the server and restart the API:
+To turn on Paisa AI, or to change its key or model, run:
 
 ```bash
-ssh -i <key.pem> ubuntu@35.154.125.240
-cd ~/paisa && nano .env.production      # set AI_API_KEY=
-docker compose -f docker-compose.prod.yml up -d api
+bash deploy/set-ai.sh 35.154.125.240 /c/Users/Lenovo/Downloads/paisa-backend-key.pem
 ```
+
+It asks for the key without showing it, saves it only in the server's
+`.env.production`, restarts the API and asks the model one test question.
+The defaults suit a reasoning model (`AI_REASONING_EFFORT=minimal`, 2000
+output tokens); the script's header shows how to override them.
 
 Everything below describes the same stack step by step, as first written for
 a Hostinger VPS; the scripts are shared.
