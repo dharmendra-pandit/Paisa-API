@@ -15,6 +15,8 @@ const {
   DATE_PATTERNS,
   PAYMENT_METHOD_HINTS,
   NON_TRANSACTION_PATTERNS,
+  OTP_PATTERNS,
+  COMPLETED_TRANSACTION_PATTERN,
   SENDER_PATTERN,
   BANK_CODES,
 } = require('../constants/smsPatterns');
@@ -133,6 +135,20 @@ function parseBank(sender, text) {
   return null;
 }
 
+/** `YYYY-MM-DD` of an instant as seen in [timezone]; null for an unknown zone. */
+function calendarDay(instant, timezone) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(instant);
+  } catch (_err) {
+    return null;
+  }
+}
+
 /** Stable identity for a message, so the same alert cannot be ingested twice. */
 function fingerprint(text) {
   return crypto.createHash('sha256').update(String(text).toLowerCase().replace(/\s+/g, ' ').trim()).digest('hex');
@@ -142,14 +158,17 @@ function fingerprint(text) {
  * Pure parse — no database, no user. Returns everything it could extract plus
  * a confidence score and the reasons behind it.
  */
-function parseSms(rawMessage, { sender, receivedAt } = {}) {
+function parseSms(rawMessage, { sender, receivedAt, timezone } = {}) {
   const message = tidy(rawMessage);
   if (!message) throw ApiError.badRequest('SMS message text is required');
 
   const lower = message.toLowerCase();
   const reasons = [];
 
-  const promotional = NON_TRANSACTION_PATTERNS.find((pattern) => pattern.test(message));
+  const otp = COMPLETED_TRANSACTION_PATTERN.test(message)
+    ? null
+    : OTP_PATTERNS.find((pattern) => pattern.test(message));
+  const promotional = otp || NON_TRANSACTION_PATTERNS.find((pattern) => pattern.test(message));
   if (promotional) {
     return {
       isTransaction: false,
@@ -183,8 +202,19 @@ function parseSms(rawMessage, { sender, receivedAt } = {}) {
 
   const accountMatch = firstMatch(ACCOUNT_PATTERNS, message);
   const referenceMatch = firstMatch(REFERENCE_PATTERNS, message);
-  const { date, matchedOn: dateMatch } = parseDate(message, receivedAt ? new Date(receivedAt) : new Date());
+  const received = receivedAt ? new Date(receivedAt) : null;
+  const validReceived = received && !Number.isNaN(received.getTime()) ? received : null;
+  let { date, matchedOn: dateMatch } = parseDate(message, validReceived || new Date());
   if (dateMatch) reasons.push(`date "${dateMatch}"`);
+
+  // A body date is only a calendar day, which parses to midnight UTC — 5:30 AM
+  // in India — so every alert of a day would list as having happened at dawn
+  // and sort in arbitrary order. When that day is the day the phone received
+  // the message, the receive time is the same transaction, told precisely.
+  // A statement arriving days later keeps the date its body states.
+  if (dateMatch && validReceived && calendarDay(validReceived, timezone) === date.toISOString().slice(0, 10)) {
+    date = validReceived;
+  }
 
   const paymentMethod = parsePaymentMethod(message);
   const bank = parseBank(sender, message);
@@ -219,7 +249,7 @@ function parseSms(rawMessage, { sender, receivedAt } = {}) {
 
 /** Parse + categorise, without persisting. Used by the dry-run preview mode. */
 async function previewSms(user, { message, sender, receivedAt }) {
-  const parsed = parseSms(message, { sender, receivedAt });
+  const parsed = parseSms(message, { sender, receivedAt, timezone: user.timezone });
   if (!parsed.isTransaction) return { parsed, expense: null };
 
   const category = await categorizationService.categorize({

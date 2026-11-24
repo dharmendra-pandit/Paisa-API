@@ -9,8 +9,16 @@
  * from most specific to most generic; the parser takes the first hit.
  */
 
-/** Currency-prefixed amount: "Rs.1,234.50", "INR 990", "₹ 49". */
+/**
+ * Amounts, most specific first.
+ *
+ * The verb-anchored form leads because it names the transaction amount itself.
+ * SBI's UPI alerts ("A/C X1234 debited by 250.0 on date 23Nov25") carry no
+ * currency marker at all, and alerts that do often mention a second figure —
+ * "Avl Bal Rs 5,000" — that a bare currency match would happily take instead.
+ */
 const AMOUNT_PATTERNS = Object.freeze([
+  /\b(?:debited|credited)\s+(?:by|for|with)\s+(?:(?:rs|inr|₹)\.?\s*)?([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i,
   /(?:rs|inr|₹)\.?\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i,
   /([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)\s*(?:rs|inr|rupees)\b/i,
 ]);
@@ -74,8 +82,6 @@ const PAYMENT_METHOD_HINTS = Object.freeze([
  * an expense silently corrupts every downstream analytic.
  */
 const NON_TRANSACTION_PATTERNS = Object.freeze([
-  /\b(?:otp|one[\s-]?time[\s-]?password)\b/i,
-  /\bdo not share\b/i,
   /\b(?:will be|is) (?:debited|charged)\b/i,
   /\b(?:offer|sale|discount|cashback offer|coupon|flat \d+% off|apply now|pre[\s-]?approved)\b/i,
   /\b(?:loan|credit limit) (?:offer|eligib)/i,
@@ -84,8 +90,30 @@ const NON_TRANSACTION_PATTERNS = Object.freeze([
   /\breminder\b/i,
 ]);
 
-/** Sender IDs look like "VM-HDFCBK" or "AD-ICICIB"; the tail is the bank code. */
-const SENDER_PATTERN = /^(?:[A-Z]{2}-)?([A-Z]{4,10})$/i;
+/**
+ * One-time-password messages. These alone are not enough to skip a message:
+ * plenty of real debit alerts end with "Never share your OTP/PIN", and treating
+ * that safety footer as an OTP threw the whole alert away. A message is an OTP
+ * only when it mentions one *and* reports no money that has already moved.
+ */
+const OTP_PATTERNS = Object.freeze([
+  /\b(?:otp|one[\s-]?time[\s-]?password|verification code)\b/i,
+  /\bdo not share\b/i,
+]);
+
+/** Past-tense verbs that only appear once money has actually moved. */
+const COMPLETED_TRANSACTION_PATTERN =
+  /\b(?:debited|credited|spent|withdrawn|sent|received|paid|transferred|deducted|refunded)\b/i;
+
+/**
+ * Sender IDs look like "VM-HDFCBK" or "AD-ICICIB"; the middle is the bank code.
+ *
+ * Under TRAI's newer header rules, most banks append a one-letter traffic class
+ * — "-S" service, "-T" transactional, "-P" promotional, "-G" government — so
+ * the same bank now arrives as "VM-HDFCBK-S". Without the optional suffix the
+ * whole header failed to match and the bank name was silently lost.
+ */
+const SENDER_PATTERN = /^(?:[A-Z]{2}-)?([A-Z]{4,10})(?:-[STPG])?$/i;
 
 const BANK_CODES = Object.freeze({
   HDFCBK: 'HDFC Bank',
@@ -114,6 +142,8 @@ module.exports = {
   DATE_PATTERNS,
   PAYMENT_METHOD_HINTS,
   NON_TRANSACTION_PATTERNS,
+  OTP_PATTERNS,
+  COMPLETED_TRANSACTION_PATTERN,
   SENDER_PATTERN,
   BANK_CODES,
 };

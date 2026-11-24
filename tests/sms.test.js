@@ -57,6 +57,66 @@ describe('SMS parsing', () => {
       expect(a.fingerprint).toBe(b.fingerprint);
     });
 
+    it('reads an SBI UPI alert that has no currency marker', () => {
+      const parsed = parseSms(
+        'Dear UPI user A/C X7712 debited by 250.0 on date 23Nov25 trf to SWIGGY Refno 512345678901. If not u? call 1800111109. -SBI',
+        { sender: 'JD-SBIUPI-S' }
+      );
+      expect(parsed.isTransaction).toBe(true);
+      expect(parsed.amount).toBe(250);
+      expect(parsed.type).toBe('debit');
+      expect(parsed.merchant).toContain('SWIGGY');
+    });
+
+    it('takes the debited amount, not a balance mentioned first in the text', () => {
+      const parsed = parseSms('Avl Bal Rs 5,000.00. A/c XX1234 debited for Rs 250.00 on 23-11-26 to ZOMATO.');
+      expect(parsed.amount).toBe(250);
+    });
+
+    it('keeps a real debit alert that ends with an OTP safety footer', () => {
+      const parsed = parseSms(
+        'Rs.1,499.00 debited from A/c XX4521 on 23-11-26 to AMAZON via UPI. Never share your OTP or PIN with anyone. -HDFC Bank'
+      );
+      expect(parsed.isTransaction).toBe(true);
+      expect(parsed.amount).toBe(1499);
+    });
+
+    it('reads the bank from a sender carrying a traffic-class suffix', () => {
+      const message = 'Rs.499.00 debited from A/c XX4521 on 28-08-26 to NETFLIX via UPI. Ref 429183746512.';
+      expect(parseSms(message, { sender: 'VM-HDFCBK-S' }).bank).toBe('HDFC Bank');
+      expect(parseSms(message, { sender: 'AX-ICICIB-T' }).bank).toBe('ICICI Bank');
+      expect(parseSms(message, { sender: 'VM-HDFCBK' }).bank).toBe('HDFC Bank');
+    });
+
+    it('keeps the receive time when the body date is the same day', () => {
+      // 28 Aug 2026, 14:05 IST.
+      const receivedAt = new Date('2026-08-28T08:35:00.000Z');
+      const parsed = parseSms('Rs.499 debited from A/c XX4521 on 28-08-26 to NETFLIX', {
+        receivedAt,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(parsed.date.toISOString()).toBe(receivedAt.toISOString());
+    });
+
+    it('matches the same day in the user timezone, not in UTC', () => {
+      // 29 Aug 2026, 01:00 IST — still 28 Aug in UTC, so a UTC comparison would
+      // wrongly move a "29-08-26" alert to the receive time of the day before.
+      const receivedAt = new Date('2026-08-28T19:30:00.000Z');
+      const parsed = parseSms('Rs.499 debited from A/c XX4521 on 29-08-26 to NETFLIX', {
+        receivedAt,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(parsed.date.toISOString()).toBe(receivedAt.toISOString());
+    });
+
+    it('keeps the body date when the message arrived on a later day', () => {
+      const parsed = parseSms('Rs.499 debited from A/c XX4521 on 20-08-26 to NETFLIX', {
+        receivedAt: new Date('2026-08-28T08:35:00.000Z'),
+        timezone: 'Asia/Kolkata',
+      });
+      expect(parsed.date.toISOString().slice(0, 10)).toBe('2026-08-20');
+    });
+
     it('raises confidence when more fields corroborate', () => {
       const rich = parseSms('Rs.499.00 debited from A/c XX4521 on 28-08-26 to NETFLIX via UPI. Ref 429183746512.', {
         sender: 'VM-HDFCBK',
