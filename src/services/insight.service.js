@@ -392,22 +392,55 @@ function budgetPace(ctx) {
   return results.slice(0, 3);
 }
 
-/** Savings rate, when we know income. */
+/**
+ * Savings rate.
+ *
+ * The wording has to follow whichever denominator the summary actually used —
+ * telling someone they "kept 62% of their income" when the figure came from an
+ * unspent budget, and no income was ever recorded, is simply a false sentence.
+ */
 function savingsRate(ctx) {
-  const { totalIncome, netSavings, savingsRate: rate } = ctx.summary;
-  if (!totalIncome || rate === null) return null;
+  const { totalIncome, monthlyBudget, spendablePot, netSavings, savingsRate: rate, savingsBasis } = ctx.summary;
+  if (rate === null || !savingsBasis) return null;
 
   const positive = rate >= 20;
+  // On the budget basis the denominator is the cap *plus* whatever arrived this
+  // month, so quoting the bare cap would not match the percentage shown.
+  const against = savingsBasis === 'budget' ? (spendablePot ?? monthlyBudget) : totalIncome;
+  if (!against) return null;
+  const topped = savingsBasis === 'budget' && against > monthlyBudget;
+
+  const overspent = rate < 0;
+  const title = savingsBasis === 'budget'
+    ? overspent
+      ? 'You are over your budget'
+      : `You still have ${rate}% of your budget`
+    : overspent
+      ? 'You spent more than you earned'
+      : positive
+        ? `You saved ${rate}% of your income`
+        : `Your savings rate is ${rate}%`;
+
+  // "budget" alone would misname the denominator once income has topped it up.
+  const potLabel = topped
+    ? `${money(monthlyBudget, ctx)} budget plus the ${money(against - monthlyBudget, ctx)} that came in`
+    : `${money(against, ctx)} budget`;
+
+  const message = savingsBasis === 'budget'
+    ? overspent
+      ? `You are ${money(Math.abs(netSavings), ctx)} past the ${potLabel} for this month.`
+      : `${money(netSavings, ctx)} of your ${potLabel} is still unspent — that is what you have saved so far.`
+    : overspent
+      ? `You spent ${money(Math.abs(netSavings), ctx)} more than the ${money(against, ctx)} that came in this month.`
+      : `You kept ${money(netSavings, ctx)} of the ${money(against, ctx)} you received this month — a ${rate}% savings rate.`;
+
   return insight({
     type: 'savings_rate',
-    severity: positive ? SEVERITY.POSITIVE : rate < 0 ? SEVERITY.WARNING : SEVERITY.INFO,
-    title: positive ? `You saved ${rate}% of your income` : rate < 0 ? 'You spent more than you earned' : `Your savings rate is ${rate}%`,
-    message:
-      rate < 0
-        ? `You spent ${money(Math.abs(netSavings), ctx)} more than the ${money(totalIncome, ctx)} that came in this month.`
-        : `You kept ${money(netSavings, ctx)} of the ${money(totalIncome, ctx)} you received this month — a ${rate}% savings rate.`,
-    metrics: { income: totalIncome, saved: netSavings, savingsRate: rate },
-    priority: rate < 0 ? 92 : 68,
+    severity: overspent ? SEVERITY.WARNING : positive ? SEVERITY.POSITIVE : SEVERITY.INFO,
+    title,
+    message,
+    metrics: { basis: savingsBasis, against, saved: netSavings, savingsRate: rate },
+    priority: overspent ? 92 : 68,
     confidence: 0.9,
   });
 }

@@ -2,6 +2,7 @@
 
 const mongoose = require('mongoose');
 const Expense = require('../models/Expense');
+const Budget = require('../models/Budget');
 const { round2, percent, percentChange, mean } = require('../utils/money');
 const {
   monthKey,
@@ -83,6 +84,18 @@ async function totalsFor(user, start, end) {
         income: {
           $sum: { $cond: [{ $eq: ['$type', TRANSACTION_TYPES.CREDIT] }, '$amount', 0] },
         },
+        // Credits that genuinely add to what the user can spend this month. A
+        // credit filed under TRANSFER is money arriving from another pocket of
+        // their own, so letting it grow the month's pot would count it twice.
+        incomeSpendable: {
+          $sum: {
+            $cond: [
+              { $and: [{ $eq: ['$type', TRANSACTION_TYPES.CREDIT] }, { $ne: ['$category', CATEGORIES.TRANSFER] }] },
+              '$amount',
+              0,
+            ],
+          },
+        },
         invested: {
           $sum: {
             $cond: [
@@ -110,16 +123,73 @@ async function totalsFor(user, start, end) {
   ]);
 
   if (!row) {
-    return { spent: 0, income: 0, invested: 0, transactions: 0, spendTransactions: 0, largest: 0 };
+    return { spent: 0, income: 0, incomeSpendable: 0, invested: 0, transactions: 0, spendTransactions: 0, largest: 0 };
   }
   return {
     spent: round2(row.spent),
     income: round2(row.income),
+    incomeSpendable: round2(row.incomeSpendable),
     invested: round2(row.invested),
     transactions: row.transactions,
     spendTransactions: row.spendTransactions,
     largest: round2(row.largest),
   };
+}
+
+/**
+ * Savings for a month.
+ *
+ * The budget is a pot, not a warning line: whatever the user did not spend out
+ * of it is what they saved. Set a ₹50,000 cap and spend nothing and you have
+ * saved ₹50,000; spend ₹19,200 and ₹30,800 is left. Overspending gives a
+ * negative figure rather than a floor of zero, because "you are ₹2,000 past
+ * your budget" is the thing worth saying.
+ *
+ * Money arriving mid-month — a bonus, freelance pay, cash from family — grows
+ * that pot instead of being booked as savings on arrival. Crediting it straight
+ * to savings would count it twice the moment it is spent: once as saved, once
+ * as spent. Growing the pot instead means it shows up as savings only if it
+ * actually survives the month, which is what saving means.
+ *
+ * Without a budget there is no pot to measure against, so it falls back to the
+ * accounting definition — what came in, less what was burned and what was moved
+ * into investments. Both are reported with `basis` so callers can word it
+ * correctly instead of guessing which one they were handed, and with `pot` —
+ * the denominator the amount was measured against.
+ */
+function savingsFor({ budgetAmount, spent, income, incomeSpendable, invested }) {
+  // Callers predating the transfer split hand over only a total credit figure.
+  const arrived = incomeSpendable ?? income;
+
+  if (budgetAmount > 0) {
+    const pot = round2(budgetAmount + arrived);
+    return {
+      basis: 'budget',
+      amount: round2(pot - spent),
+      rate: percent(pot - spent, pot),
+      pot,
+    };
+  }
+  if (income > 0) {
+    return {
+      basis: 'income',
+      amount: round2(income - spent - invested),
+      rate: percent(income - spent - invested, income),
+      pot: round2(income),
+    };
+  }
+  // Nothing to measure against: no cap, no income. The amount is still the
+  // accounting figure, but the rate stays null — a 0% savings rate would be a
+  // claim we have no denominator for.
+  return { basis: null, amount: round2(income - spent - invested), rate: null, pot: 0 };
+}
+
+/** The OVERALL cap for a month, or 0 when the user has not set one. */
+async function overallBudgetAmount(user, month) {
+  const budget = await Budget.findOne({ user: user._id, month, category: Budget.OVERALL })
+    .select('amount')
+    .lean();
+  return budget ? round2(budget.amount) : 0;
 }
 
 /** Headline numbers for a month, with month-over-month comparison. */
@@ -129,11 +199,20 @@ async function getMonthlySummary(user, { month } = {}) {
   const prevMonth = previousMonthKey(targetMonth, user.timezone);
   const prevRange = monthRange(prevMonth, user.timezone);
 
-  const [current, previous, topCategories] = await Promise.all([
+  const [current, previous, topCategories, budgetAmount] = await Promise.all([
     totalsFor(user, start, end),
     totalsFor(user, prevRange.start, prevRange.end),
     getCategoryBreakdown(user, { month: targetMonth, limit: 3 }),
+    overallBudgetAmount(user, targetMonth),
   ]);
+
+  const savings = savingsFor({
+    budgetAmount,
+    spent: current.spent,
+    income: current.income,
+    incomeSpendable: current.incomeSpendable,
+    invested: current.invested,
+  });
 
   const now = new Date();
   const totalDays = daysInMonth(start, user.timezone);
@@ -145,9 +224,17 @@ async function getMonthlySummary(user, { month } = {}) {
     currency: user.currency,
     totalSpent: current.spent,
     totalIncome: current.income,
+    /** Credits excluding self-transfers — the part that grows the month's pot. */
+    spendableIncome: current.incomeSpendable,
     totalInvested: current.invested,
-    netSavings: round2(current.income - current.spent - current.invested),
-    savingsRate: current.income ? percent(current.income - current.spent - current.invested, current.income) : null,
+    /** The month's spending cap, or 0 when none is set. */
+    monthlyBudget: budgetAmount,
+    /** Cap plus the money that arrived — what `netSavings` is measured against. */
+    spendablePot: savings.pot,
+    netSavings: savings.amount,
+    savingsRate: savings.rate,
+    /** `budget`, `income`, or null — what `netSavings` was measured against. */
+    savingsBasis: savings.basis,
     transactions: current.transactions,
     averageTransaction: current.spendTransactions ? round2(current.spent / current.spendTransactions) : 0,
     largestExpense: current.largest,
@@ -428,4 +515,5 @@ module.exports = {
   totalsFor,
   resolveRange,
   spendMatch,
+  savingsFor,
 };

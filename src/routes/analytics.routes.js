@@ -24,17 +24,33 @@ const router = express.Router();
  *       - { in: query, name: month, schema: { type: string, example: '2026-08' }, description: Defaults to the current month }
  *     responses:
  *       200:
- *         description: Totals, savings rate, daily average and projected month-end spend
+ *         description: |
+ *           Totals, savings, daily average and projected month-end spend.
+ *
+ *           `netSavings` is measured against whichever denominator the account
+ *           actually has, named by `savingsBasis`: the unspent part of the
+ *           month's OVERALL budget (`budget`), or income less spending and
+ *           investments (`income`) when no budget is set. `savingsRate` is null
+ *           when there is neither, and `netSavings` goes negative on overspend.
+ *
+ *           On the `budget` basis the denominator is `spendablePot` — the cap
+ *           plus `spendableIncome`, the credits that arrived this month other
+ *           than self-transfers. Incoming money therefore raises what you may
+ *           spend, and becomes savings only if it is still unspent at month end.
  *         content:
  *           application/json:
  *             example:
  *               success: true
  *               data:
  *                 month: '2026-08'
- *                 totalSpent: 38420.5
- *                 totalIncome: 85000
- *                 netSavings: 41579.5
- *                 savingsRate: 48.9
+ *                 totalSpent: 19200
+ *                 totalIncome: 5000
+ *                 spendableIncome: 5000
+ *                 monthlyBudget: 50000
+ *                 spendablePot: 55000
+ *                 netSavings: 35800
+ *                 savingsRate: 65.1
+ *                 savingsBasis: budget
  *                 dailyAverage: 1280.68
  *                 projectedMonthEnd: 39700.1
  *                 comparison: { previousMonth: '2026-07', previousSpent: 32010, changePercent: 20, direction: up }
