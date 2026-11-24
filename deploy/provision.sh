@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 #
-# One-time hardening and setup for a fresh Hostinger KVM2 (Ubuntu 22.04/24.04).
+# One-time hardening and setup for a fresh Ubuntu server (22.04 or later):
+# a Hostinger KVM2, or an AWS EC2 instance.
 #
-# Run ONCE as root on a brand new VPS, before the first deploy:
+# Run ONCE as root on a brand new server, before the first deploy:
 #     bash deploy/provision.sh
+#
+# On EC2, log in as `ubuntu` and reuse that account as the deploy user —
+# its key is the one EC2 installed, while root's authorized_keys there only
+# prints "Please login as ubuntu":
+#     sudo DEPLOY_USER=ubuntu bash deploy/provision.sh
 #
 # What it does, and why each part matters on a box with a public IP:
 #   - creates a non-root deploy user with docker access
@@ -73,8 +79,15 @@ else
 https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
     >/etc/apt/sources.list.d/docker.list
 
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  apt-get update -qq || true
+  if ! apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+    # Docker's own repo can trail a brand-new Ubuntu release by weeks. Ubuntu's
+    # packages are older but run the same compose file.
+    warn "Docker's repository has no packages for this Ubuntu release yet — using Ubuntu's own"
+    rm -f /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    apt-get install -y -qq docker.io docker-compose-v2 docker-buildx
+  fi
 fi
 
 usermod -aG docker "$DEPLOY_USER"

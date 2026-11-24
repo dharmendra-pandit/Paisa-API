@@ -33,7 +33,7 @@ REMOTE_PATH="/home/\$USER/paisa/backend"
 
 if [[ -z "$TARGET" ]]; then
   cat >&2 <<USAGE
-Usage: bash deploy/upload.sh <user@host> [--path <remote-dir>] [--port <ssh-port>]
+Usage: bash deploy/upload.sh <user@host> [--path <remote-dir>] [--port <ssh-port>] [--key <file.pem>]
 
 Examples:
   bash deploy/upload.sh paisa@203.0.113.10
@@ -44,10 +44,13 @@ fi
 
 shift
 SSH_PORT=22
+SSH_KEY_OPTS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --path) REMOTE_PATH="$2"; shift 2 ;;
     --port) SSH_PORT="$2"; shift 2 ;;
+    # EC2 hands out a .pem per key pair rather than using your own key.
+    --key) SSH_KEY_OPTS=(-i "$2"); shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -81,12 +84,12 @@ fi
 
 log "Copying to $TARGET:$REMOTE_PATH"
 # shellcheck disable=SC2029  # remote expansion of $USER is intentional
-ssh -p "$SSH_PORT" "$TARGET" "mkdir -p $REMOTE_PATH"
-scp -P "$SSH_PORT" "$TMP" "$TARGET:/tmp/$ARCHIVE"
+ssh "${SSH_KEY_OPTS[@]}" -p "$SSH_PORT" "$TARGET" "mkdir -p $REMOTE_PATH"
+scp "${SSH_KEY_OPTS[@]}" -P "$SSH_PORT" "$TMP" "$TARGET:/tmp/$ARCHIVE"
 
 log "Extracting on the server"
 # shellcheck disable=SC2029
-ssh -p "$SSH_PORT" "$TARGET" "
+ssh "${SSH_KEY_OPTS[@]}" -p "$SSH_PORT" "$TARGET" "
   set -e
   cd $REMOTE_PATH
   tar -xzf /tmp/$ARCHIVE
@@ -116,7 +119,7 @@ On the server:
     # first time only:
     cp .env.production.example .env.production
     chmod 600 .env.production
-    nano .env.production          # fill in DOMAIN, ACME_EMAIL and every secret
+    nano .env.production          # fill in DOMAIN and every secret
 
     bash deploy/deploy.sh
 

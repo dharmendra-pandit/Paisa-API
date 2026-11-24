@@ -1,3 +1,38 @@
+# Deploying Paisa
+
+## AWS EC2 (current: `api.paisa.stellzo.tech`)
+
+Production runs on an EC2 **t3.small** (2 GB) in `ap-south-1`, Ubuntu, with a
+fixed **Elastic IP**. Its security group opens only 22, 80 and 443 (TCP) and
+443 (UDP). DNS for `stellzo.tech` is managed at Hostinger, so the `api.paisa`
+A record must be set there, to the **Elastic IP** — not the instance's private
+`172.31.x.x` address, which nothing outside AWS can reach.
+
+From the `backend` folder, in Git Bash on your PC:
+
+```bash
+bash deploy/aws-deploy.sh 35.154.125.240 api.paisa.stellzo.tech     /c/Users/Lenovo/Downloads/paisa-backend-key.pem
+```
+
+The first run installs Docker, the firewall, fail2ban and swap, creates
+`.env.production` on the server with new random passwords, and starts
+MongoDB, the API and Caddy (which gets the HTTPS certificate). Every later
+run ships the current code and redeploys; it never replaces the passwords.
+It waits, without starting, until the domain points at the server.
+
+To turn on Paisa AI, add the key on the server and restart the API:
+
+```bash
+ssh -i <key.pem> ubuntu@35.154.125.240
+cd ~/paisa && nano .env.production      # set AI_API_KEY=
+docker compose -f docker-compose.prod.yml up -d api
+```
+
+Everything below describes the same stack step by step, as first written for
+a Hostinger VPS; the scripts are shared.
+
+---
+
 # Deploying Paisa to a Hostinger KVM2 VPS
 
 Production deployment on a self-managed VPS with your own domain. The stack is
@@ -111,7 +146,7 @@ openssl rand -hex 24    # MONGO_ROOT_PASSWORD
 openssl rand -hex 24    # MONGO_APP_PASSWORD
 ```
 
-At minimum you must set `DOMAIN`, `ACME_EMAIL`, `CORS_ORIGINS`, all four
+At minimum you must set `DOMAIN`, `CORS_ORIGINS`, all four
 passwords above, and both Mongo usernames. `deploy.sh` refuses to run while any
 `CHANGE_ME` placeholder remains.
 

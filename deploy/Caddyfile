@@ -2,10 +2,12 @@
 #
 # Caddy obtains and renews Let's Encrypt certificates automatically — there is
 # no certbot, no renewal cron, and no 90-day surprise. The only requirements are
-# that {$DOMAIN} resolves to this VPS and that ports 80 and 443 reach it.
+# that {$DOMAIN} resolves to this server and that ports 80 and 443 reach it.
 
+# No ACME account email. Let's Encrypt stopped sending expiry reminders in
+# 2025, and Caddy renews on its own, so an address would only be one more piece
+# of personal data handed to a third party for nothing.
 {
-	email {$ACME_EMAIL}
 	# Trim the server header; there is no reason to advertise the version.
 	servers {
 		protocols h1 h2 h3

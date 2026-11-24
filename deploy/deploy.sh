@@ -114,8 +114,13 @@ done
 # ---------------------------------------------------------------------------
 # Housekeeping
 # ---------------------------------------------------------------------------
-log "Removing dangling images"
+log "Removing dangling images and old build cache"
 docker image prune -f >/dev/null
+# Every build leaves layers in the builder cache, and on a small disk they
+# add up until a build fails with "no space left on device". A week of cache
+# keeps rebuilds fast without letting it grow without bound.
+docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+df -h / | awk 'NR==2 {print "   disk: " $3 " used of " $2 " (" $5 ")"}'
 
 log "Deployment complete"
 $COMPOSE ps

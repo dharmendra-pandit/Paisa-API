@@ -1,4 +1,4 @@
-# Production stack for a single VPS (Hostinger KVM2).
+# Production stack for a single server (AWS EC2 t3.small; earlier a Hostinger KVM2).
 #
 # Differences from docker-compose.yml, which is a development convenience:
 #
@@ -21,7 +21,10 @@ services:
     image: mongo:7
     container_name: paisa-mongo
     restart: unless-stopped
-    command: ['--auth', '--bind_ip_all', '--wiredTigerCacheSizeGB', '1']
+    # The cache size is per server: 1GB suits a 4GB box, but on a 2GB t3.small
+    # it would leave the API and the OS fighting over what remains. Set
+    # MONGO_CACHE_GB in .env.production (0.5 for 2GB of RAM).
+    command: ['--auth', '--bind_ip_all', '--wiredTigerCacheSizeGB', '${MONGO_CACHE_GB:-1}']
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env.production}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env.production}
@@ -94,7 +97,6 @@ services:
       - '443:443/udp' # HTTP/3
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.production}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates must outlive the container or every restart re-requests
