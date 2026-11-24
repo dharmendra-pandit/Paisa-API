@@ -28,8 +28,8 @@ bash deploy/set-ai.sh 35.154.125.240 /c/Users/Lenovo/Downloads/paisa-backend-key
 
 It asks for the key without showing it, saves it only in the server's
 `.env.production`, restarts the API and asks the model one test question.
-The defaults suit a reasoning model (`AI_REASONING_EFFORT=minimal`, 2000
-output tokens); the script's header shows how to override them.
+The defaults suit a reasoning model (`gpt-5.4-mini`, `AI_REASONING_EFFORT=none`,
+2000 output tokens); the script's header shows how to override them.
 
 Everything below describes the same stack step by step, as first written for
 a Hostinger VPS; the scripts are shared.

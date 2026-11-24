@@ -73,7 +73,8 @@ const envSchema = z.object({
   // unset rather than an invalid value that stops the server booting.
   AI_REASONING_EFFORT: z.preprocess(
     (value) => (value === '' ? undefined : value),
-    z.enum(['minimal', 'low', 'medium', 'high']).optional()
+    // 'none' is the newer models' lowest setting; older ones call it 'minimal'.
+    z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional()
   ),
 });
 

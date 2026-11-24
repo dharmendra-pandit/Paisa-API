@@ -17,6 +17,12 @@ describe('AI request body', () => {
     });
   });
 
+  it('passes newer models their lowest effort, "none", straight through', () => {
+    const body = requestBody(messages, { model: 'thinking-model', maxOutputTokens: 2000, reasoningEffort: 'none' });
+    expect(body.reasoning_effort).toBe('none');
+    expect(body).not.toHaveProperty('temperature');
+  });
+
   it('sends a reasoning model only parameters it accepts', () => {
     const body = requestBody(messages, { model: 'thinking-model', maxOutputTokens: 2000, reasoningEffort: 'minimal' });
 

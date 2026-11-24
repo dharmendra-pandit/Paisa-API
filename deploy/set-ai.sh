@@ -30,8 +30,10 @@ fi
 [[ -f "$KEY_FILE" ]] || { echo "Key file not found: $KEY_FILE" >&2; exit 1; }
 
 BASE_URL="${AI_BASE_URL:-https://api.openai.com/v1}"
-MODEL="${AI_MODEL:-gpt-5-mini}"
-EFFORT="${AI_REASONING_EFFORT-minimal}"
+# gpt-5-mini is retired on 2026-12-11; its successor takes "none" rather
+# than "minimal" as the lowest thinking setting.
+MODEL="${AI_MODEL:-gpt-5.4-mini}"
+EFFORT="${AI_REASONING_EFFORT-none}"
 TOKENS="${AI_MAX_OUTPUT_TOKENS:-2000}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
