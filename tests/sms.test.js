@@ -57,6 +57,36 @@ describe('SMS parsing', () => {
       expect(a.fingerprint).toBe(b.fingerprint);
     });
 
+    it.each([
+      ['Rs.1500.00 debited from A/c XX1234 to SWIGGY on 23-11-26', 1500],
+      ['INR 85000 credited to A/c XX1234 on 01-11-26', 85000],
+      ['A/C X7712 debited by 12500.0 on date 23Nov25 trf to AMAZON', 12500],
+      ['Sent Rs.250000.00 From HDFC Bank A/C *1234 To LANDLORD On 23/11/26', 250000],
+      ['3200 Rs debited from your a/c XX1234 for EMI on 23-11-26', 3200],
+      ['Rs.1,500 debited from A/c XX1234 to SWIGGY', 1500],
+      ['Rs.499 debited to NETFLIX', 499],
+    ])('reads every digit of an amount: %s', (message, amount) => {
+      // Amounts over 999 written without commas used to lose their last
+      // digits: "Rs.1500" was recorded as 150.
+      expect(parseSms(message).amount).toBe(amount);
+    });
+
+    it.each([
+      ['Sent Rs.250.00 from Kotak Bank AC X1234 to swiggy@icici on 23-11-26.UPI Ref 512345678901.', 'swiggy'],
+      ['ICICI Bank Acct XX123 debited for Rs 250.00 on 23-Nov-26; SWIGGY credited. UPI:512345678901.', 'SWIGGY'],
+      ['INR 250.00 debited A/c no. XX1234 23-11-26, 10:00:00 UPI/P2M/512345678901/SWIGGY Not you? SMS BLOCKUPI to 919951860002', 'SWIGGY'],
+      ['Rs.5000.00 credited to your A/c XX1234 on 23-11-26 from RAHUL SHARMA via UPI. Ref 512345678901', 'RAHUL SHARMA'],
+      ['Received Rs.1200 in your Kotak Bank AC X1234 from rahul@okaxis on 23-11-26.UPI Ref:512345678901', 'rahul'],
+      ['Spent Rs.1250 On HDFC Bank Card 1234 At AMAZON On 2026-11-23:10:00:00 Bal Rs.10000', 'AMAZON'],
+    ])('reads the other party: %s', (message, merchant) => {
+      expect(parseSms(message).merchant).toBe(merchant);
+    });
+
+    it('never names a transaction after the user\'s own account', () => {
+      const parsed = parseSms('Rs.5000.00 credited to your A/c XX1234 on 23-11-26. Avl Bal Rs.12000');
+      expect(parsed.merchant).toBeNull();
+    });
+
     it('reads an SBI UPI alert that has no currency marker', () => {
       const parsed = parseSms(
         'Dear UPI user A/C X7712 debited by 250.0 on date 23Nov25 trf to SWIGGY Refno 512345678901. If not u? call 1800111109. -SBI',

@@ -10,6 +10,8 @@ const {
   DEBIT_KEYWORDS,
   CREDIT_KEYWORDS,
   MERCHANT_PATTERNS,
+  CREDIT_MERCHANT_PATTERNS,
+  MERCHANT_STOPWORDS,
   ACCOUNT_PATTERNS,
   REFERENCE_PATTERNS,
   DATE_PATTERNS,
@@ -81,12 +83,28 @@ function parseType(lower) {
 /** Trailing connectives survive greedy captures; strip them so keys stay stable. */
 const MERCHANT_TAIL = /\b(?:on|via|using|ref|txn|dated|for|upi|a\/c|info|avl|bal)\b.*$/i;
 
-function parseMerchant(text) {
-  const match = firstMatch(MERCHANT_PATTERNS, text);
-  if (!match) return null;
-  const merchant = tidy(match[1].replace(MERCHANT_TAIL, '').replace(/[.,;:_-]+$/, ''));
-  if (merchant.length < 3 || /^\d+$/.test(merchant)) return null;
+function cleanMerchant(raw) {
+  const merchant = tidy(raw.replace(MERCHANT_TAIL, '').replace(/[.,;:_-]+$/, ''));
+  if (merchant.length < 3 || /^\d+$/.test(merchant) || MERCHANT_STOPWORDS.test(merchant)) return null;
   return merchant;
+}
+
+/**
+ * The other party. Every pattern is tried in turn until one yields a real
+ * name: stopping at the first match let "to your A/c" end the search with
+ * "your" when "from RAHUL SHARMA" sat later in the same message.
+ */
+function parseMerchant(text, type) {
+  const patterns = type === TRANSACTION_TYPES.CREDIT
+    ? [...CREDIT_MERCHANT_PATTERNS, ...MERCHANT_PATTERNS]
+    : MERCHANT_PATTERNS;
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const merchant = match && cleanMerchant(match[1]);
+    if (merchant) return merchant;
+  }
+  return null;
 }
 
 function parseDate(text, fallback) {
@@ -197,7 +215,7 @@ function parseSms(rawMessage, { sender, receivedAt, timezone } = {}) {
   }
   reasons.push(`direction "${typeMatch}"`);
 
-  const merchant = parseMerchant(message);
+  const merchant = parseMerchant(message, type);
   if (merchant) reasons.push(`merchant "${merchant}"`);
 
   const accountMatch = firstMatch(ACCOUNT_PATTERNS, message);

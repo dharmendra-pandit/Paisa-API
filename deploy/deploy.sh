@@ -95,6 +95,12 @@ fi
 log "Synchronising database indexes"
 $COMPOSE run --rm --no-deps api npm run indexes:sync
 
+# Corrects SMS expenses an older parser recorded wrongly. It only touches a
+# field that still holds the old parser's exact output, so it is safe to run
+# on every deploy and does nothing once there is nothing left to fix.
+log "Correcting SMS expenses recorded by older parser versions"
+$COMPOSE run --rm --no-deps api npm run --silent sms:repair || echo "   (repair skipped — the API still deploys)"
+
 # ---------------------------------------------------------------------------
 # Roll the app
 # ---------------------------------------------------------------------------

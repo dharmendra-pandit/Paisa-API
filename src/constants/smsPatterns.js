@@ -10,6 +10,16 @@
  */
 
 /**
+ * One amount: "1,24,500.75", "1500.00", "499", "250.0".
+ *
+ * The comma form must contain at least one comma. With the commas optional, a
+ * plain "1500" was taken by that branch as "150" — three digits, no comma,
+ * nothing after — and the alternation never reached the plain-digits branch,
+ * so every amount over 999 written without separators lost its last digits.
+ */
+const NUMBER = String.raw`([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)(?![0-9])`;
+
+/**
  * Amounts, most specific first.
  *
  * The verb-anchored form leads because it names the transaction amount itself.
@@ -18,9 +28,9 @@
  * "Avl Bal Rs 5,000" — that a bare currency match would happily take instead.
  */
 const AMOUNT_PATTERNS = Object.freeze([
-  /\b(?:debited|credited)\s+(?:by|for|with)\s+(?:(?:rs|inr|₹)\.?\s*)?([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i,
-  /(?:rs|inr|₹)\.?\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/i,
-  /([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)\s*(?:rs|inr|rupees)\b/i,
+  new RegExp(String.raw`\b(?:debited|credited)\s+(?:by|for|with)\s+(?:(?:rs|inr|₹)\.?\s*)?` + NUMBER, 'i'),
+  new RegExp(String.raw`(?:rs|inr|₹)\.?\s*` + NUMBER, 'i'),
+  new RegExp(NUMBER + String.raw`\s*(?:rs|inr|rupees)\b`, 'i'),
 ]);
 
 /** Words that mark money leaving the account. */
@@ -41,11 +51,32 @@ const CREDIT_KEYWORDS = Object.freeze([
  */
 const MERCHANT_PATTERNS = Object.freeze([
   /(?:at|to)\s+([A-Za-z0-9][A-Za-z0-9&'._\- ]{2,40}?)\s+(?:on|via|using|dated|ref|upi|for|txn|a\/c)\b/i,
-  /(?:vpa|to vpa)\s+([A-Za-z0-9._-]{3,40})@[A-Za-z]{2,20}/i,
+  // A UPI handle: "to swiggy@icici", "to VPA swiggy@ybl" — the part before @.
+  /\b(?:to|vpa)\s+(?:vpa\s+)?([A-Za-z0-9._-]{3,40})@[A-Za-z][A-Za-z0-9.-]{1,20}/i,
+  // ICICI names the payee as the account that was credited: "…; SWIGGY credited."
+  /;\s*([A-Za-z0-9][A-Za-z0-9&'._\- ]{2,40}?)\s+credited\b/i,
+  // Axis and others write the UPI narration: "UPI/P2M/512345678901/SWIGGY".
+  /\bUPI\/(?:P2[AM]\/|DR\/|CR\/)?\d{6,}\/([A-Za-z0-9][A-Za-z0-9&'._\- ]{2,40}?)(?:\/|\s+(?:not|ref|on|call|sms)\b|[.;]|$)/i,
   /(?:info|desc|narration|remarks?)\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9&'._\- ]{2,40})/i,
   /\btrf\s+to\s+([A-Za-z0-9][A-Za-z0-9&'._\- ]{2,40}?)(?:\s+ref|\s+on|[.;]|$)/i,
   /(?:at|to)\s+([A-Za-z0-9][A-Za-z0-9&'._\- ]{2,40}?)(?:[.;]|$)/i,
 ]);
+
+/**
+ * Who sent the money, for an incoming credit. Tried before MERCHANT_PATTERNS
+ * on credits, whose "to" names the user's own account ("credited to your
+ * A/c"), not the other party.
+ */
+const CREDIT_MERCHANT_PATTERNS = Object.freeze([
+  /\bfrom\s+(?:vpa\s+)?([A-Za-z0-9._-]{3,40})@[A-Za-z][A-Za-z0-9.-]{1,20}/i,
+  /\bfrom\s+([A-Za-z][A-Za-z0-9&'._\- ]{2,40}?)(?:\s+(?:on|via|ref|upi|a\/c|info|imps|neft|rtgs|txn)\b|[.;(]|$)/i,
+]);
+
+/**
+ * Captures that are the user's own account or a filler word, never a payee —
+ * "credited to your A/c" once produced a transaction titled "your".
+ */
+const MERCHANT_STOPWORDS = /^(?:your|you|ur|self|a\/c|ac|acct|account|card|bank|the|beneficiary|linked)\b/i;
 
 /** Masked account / card identifiers: "A/c XX1234", "card ending 5678". */
 const ACCOUNT_PATTERNS = Object.freeze([
@@ -137,6 +168,8 @@ module.exports = {
   DEBIT_KEYWORDS,
   CREDIT_KEYWORDS,
   MERCHANT_PATTERNS,
+  CREDIT_MERCHANT_PATTERNS,
+  MERCHANT_STOPWORDS,
   ACCOUNT_PATTERNS,
   REFERENCE_PATTERNS,
   DATE_PATTERNS,
